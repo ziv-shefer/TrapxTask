@@ -1,5 +1,4 @@
 import socket
-import time
 from ipaddress import *
 from queue import Queue
 from concurrent.futures import ThreadPoolExecutor
@@ -35,8 +34,10 @@ class PortScanner:
     # pinging ips to identify if listening
     def ips_scanner(self, i):
         ip = str(i)
+        # ping
         res = subprocess.Popen(self.ping + ip, shell=True, stdout=subprocess.PIPE)
         (out, err) = res.communicate()
+        # looking for ips with return code 0 and reachable
         if str(out).find('unreachable') < 0 and res.returncode == 0:
             self.ipsq.put(ip)
             print(f'the address {ip} is available')
@@ -56,36 +57,37 @@ class PortScanner:
         except socket.error as exc:
             print(f"Caught exception socket.error : {exc}")
 
-    #
+    # executing open port search
     def ip_handler(self):
         while True:
+            # waiting for new ip
             ip = self.ipsq.get()
             if ip:
+                # adding another entry to the dictionary: key - ip value - ports list
                 self.result[ip] = []
                 qu = Queue()
+                # executing thread poll in order to find open ports
                 with ThreadPoolExecutor(self.port_threading) as executor:
                     for i in range(self.ports_range[0], self.ports_range[1]):
                         executor.submit(self.port_scanner, ip, i, qu)
+                # dumping all the ports to the final dictionary
                 while qu.qsize() > 0:
                     self.result[ip].append(qu.get())
             else:
                 break
 
     def run(self):
-        t = time.time()
-        # p = Process(target=self.ip_handler).start()
+        # executing thread pool - for pinging the ips and check if they are alive
         with ThreadPoolExecutor(max_workers=self.ip_threading) as executor:
             executor.map(self.ips_scanner, self.ipslst)
-        print('done with ips')
+        # after finished adding FALSE boolean argument to determine ip handler there's no more ips
         self.ipsq.put(False)
         self.ip_handler()
-        # while (p.is_alive()):
-        #     time.sleep(5)
-        print('done')
-        print(time.time() - t)
+        # returning completed with ips and open ports in the network
         return self.result
 
-# configuration file
+
+# sample configuration file
 cfg = {
     'ping': 'ping -c 1 -n 1 ',
     'network_id': '',
