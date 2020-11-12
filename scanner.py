@@ -56,7 +56,7 @@ class PortScanner:
                 qu = Queue()
                 # executing thread poll in order to find open ports
 
-                with ThreadPoolExecutor(self.ports_range[1]) as executor:
+                with ThreadPoolExecutor(5000) as executor:
                     for i in range(self.ports_range[0], self.ports_range[1]):
                         executor.submit(self.port_scanner, ip, i, qu)
                 # dumping all the ports to the final dictionary
@@ -67,7 +67,7 @@ class PortScanner:
 
     def run(self):
         # executing thread pool - for pinging the ips and check if they are alive
-        with ThreadPoolExecutor(max_workers=len(self.ipslst)) as executor:
+        with ThreadPoolExecutor(max_workers=100) as executor:
             executor.map(self.ips_scanner, self.ipslst)
         # after finished adding FALSE boolean argument to determine ip handler there's no more ips
         self.ipsq.put(False)
