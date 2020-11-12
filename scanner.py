@@ -12,7 +12,7 @@ class PortScanner:
 
     def __init__(self, args):
         if args.portslst:
-            self.ports_range = args.portslst
+            self.ports_range = list(map(int, args.portslst))
         if args.ipslst:
             self.ipslst = args.ipslst
         elif args.network_id:
