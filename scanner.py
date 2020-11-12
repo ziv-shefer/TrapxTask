@@ -2,45 +2,34 @@ import socket
 from ipaddress import *
 from queue import Queue
 from concurrent.futures import ThreadPoolExecutor
-import subprocess
+import scapy.all as scapy
+from scapy.layers.l2 import ARP
+from scapy.sendrecv import sr
+import argparse
 
 
 class PortScanner:
 
-    # setting default configuration file
-    def cfg_handler(self):
-        return {
-            'ping': 'ping -c 1 -n 1 ',
-            'network_id': '192.168.1.0/24',
-            'ports_range': [1, 65535],
-            'port_threading': 5000,
-            'ip_threading': 50,
-            'iplst': list(ip_network(self.network_id).hosts())
-        }
-
-    def __init__(self, cfg=None):
-        if cfg is None:
-            cfg = self.cfg_handler()
-        self.ping = cfg['ping']
-        self.network_id = cfg['network_id']
+    def __init__(self, args):
+        if args.portslst:
+            self.ports_range = args.portslst
+        if args.ipslst:
+            self.ipslst = args.ipslst
+        elif args.network_id:
+            network_id = args.network_id
+            self.ipslst = list(ip_network(network_id).hosts())
+        else:
+            network_id = scapy.get_if_addr(scapy.conf.iface)[:-2]+'0/24'
+            self.ipslst = list(ip_network(network_id).hosts())
         self.ipsq = Queue()
-        self.queuelst = []
         self.result = {}
-        self.ports_range = cfg['ports_range']
-        self.port_threading = cfg['port_threading']
-        self.ip_threading = cfg['ip_threading']
-        self.ipslst = cfg['ipslst']
 
-    # pinging ips to identify if listening
-    def ips_scanner(self, i):
-        ip = str(i)
-        # ping
-        res = subprocess.Popen(self.ping + ip, shell=True, stdout=subprocess.PIPE)
-        (out, err) = res.communicate()
-        # looking for ips with return code 0 and reachable
-        if str(out).find('unreachable') < 0 and res.returncode == 0:
+    # implementing with scapy arp ping method
+    def ips_scanner(self, ip):
+        ip = str(ip)
+        a = sr(ARP(pdst=[ip]), timeout=1, verbose=0)
+        if len(a[0].res) > 0:
             self.ipsq.put(ip)
-            print(f'the address {ip} is available')
 
     # scanning for open ports per ip by streaming with sockets
     @staticmethod
@@ -52,7 +41,6 @@ class PortScanner:
             # if a connection established putting port number inside q (to avoid deadlock)
             if result == 0:
                 q.put(port)
-                print("Port {} is open".format(port))
             s.close()
         except socket.error as exc:
             print(f"Caught exception socket.error : {exc}")
@@ -67,7 +55,8 @@ class PortScanner:
                 self.result[ip] = []
                 qu = Queue()
                 # executing thread poll in order to find open ports
-                with ThreadPoolExecutor(self.port_threading) as executor:
+
+                with ThreadPoolExecutor(self.ports_range[1]) as executor:
                     for i in range(self.ports_range[0], self.ports_range[1]):
                         executor.submit(self.port_scanner, ip, i, qu)
                 # dumping all the ports to the final dictionary
@@ -78,7 +67,7 @@ class PortScanner:
 
     def run(self):
         # executing thread pool - for pinging the ips and check if they are alive
-        with ThreadPoolExecutor(max_workers=self.ip_threading) as executor:
+        with ThreadPoolExecutor(max_workers=len(self.ipslst)) as executor:
             executor.map(self.ips_scanner, self.ipslst)
         # after finished adding FALSE boolean argument to determine ip handler there's no more ips
         self.ipsq.put(False)
@@ -87,15 +76,26 @@ class PortScanner:
         return self.result
 
 
-# sample configuration file
-cfg = {
-    'ping': 'ping -c 1 -n 1 ',
-    'network_id': '',
-    'ports_range': [1, 65535],
-    'port_threading': 5000,
-    'ip_threading': 1,
-    'ipslst': ['192.168.1.25', '192.168.1.23']
-}
-
 if __name__ == '__main__':
-    PortScanner(cfg=cfg).run()
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument('-l', '--ips_list', dest='ipslst', default=None, nargs='*',
+                        help='insert above the ips list you would like to check otherwise it will be set to default.')
+    parser.add_argument('-p', '--ports_range', dest='portslst', default=[1, 65535], nargs='*',
+                        help='insert above the ports range you would like to check otherwise it will be set to default.')
+    parser.add_argument('-n', '--network_id', dest='network_id', default=None,
+                        help='if your subnet mask is not 255.255.255.0 you should insert your network id.')
+    try:
+        args = parser.parse_args()
+    except argparse.ArgumentError as e:
+        print(e)
+    final_list = PortScanner(args).run()
+    found = False
+    for ip in final_list:
+        if final_list[ip]:
+            for port in final_list[ip]:
+                found = True
+                print(f'{ip}:{port}         LISTENING')
+
+    if not found:
+        print(f'couldnt find any open ports in the ips given!')

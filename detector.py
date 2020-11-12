@@ -33,7 +33,7 @@ class PortDetector:
         # looking for pkg that sent to my ip over tcp protocol
         if pkt.haslayer(IP) and pkt[IP].dst == self.ip:
             if pkt.haslayer(TCP):
-                logging.info(f'sender IP: {pkt[IP].src}, sender port: {pkt[TCP].sport}')
+                logging.info(f'sender IP: {pkt[IP].src}, sender port: {pkt[TCP].dport}')
 
     def start(self):
         while True:
